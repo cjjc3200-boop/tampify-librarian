@@ -1,34 +1,81 @@
 # TampifyAI AI Librarian
 
-The engine over the Second Brain. Ingests `raw/`, maintains `wiki/`, and answers questions about the business.
+A RAG system that answers questions over TampifyAI's own knowledge base (the [Second Brain](https://github.com/cjjc3200-boop/tampify-second-brain)).
 
-## What it does
+This is not a demo over toy data — it indexes the real services, pricing, outreach sequence, targeting rules, and brand voice, and answers questions about them.
 
-1. **Ingest** — read every file in the brain's `raw/` folder
-2. **Chunk** — split into retrieval-sized pieces with overlap
-3. **Embed + store** — vectorize and persist to Chroma
-4. **Summarize** — write the `wiki/` mirror layer
-5. **Retrieve** — answer grounded questions over the knowledge
+## Why it exists
 
-This is the same load → chunk → embed → store → retrieve → generate pipeline as my Vito's Sandwich Shop project, pointed at business knowledge instead of a restaurant FAQ.
+The business keeps its knowledge in one place (the brain). This layer makes that knowledge answerable: instead of scrolling through markdown files, you ask a question and get a grounded answer with sources. It is also the retrieval layer that the Agency OS will draw on.
 
-## Depends on
+## Architecture
 
-- `tampify-second-brain` — the data it reads and maintains
-- Consumed by `tampify-agency-os` — which uses retrieved knowledge to do work
+```
+raw/ (Second Brain)  ->  ingest  ->  chunk  ->  embed  ->  Chroma
+                                                             |
+                              question  ->  embed  ->  hybrid retrieve (top-k)
+                                                             |
+                                              grounded answer + source files
+```
 
-## Stack
+### Retrieval is hybrid, and here is why
 
-Python · LangChain · Chroma · python-dotenv
+A pure vector search fuses meaning well but blurs exact tokens — prices (`$1,000`), proper nouns (`Gro Yoga`). Keyword search nails those but misses paraphrase. This system runs both and fuses them with **Reciprocal Rank Fusion (RRF)**, so the two rankings do not need to share a score scale.
 
-## Setup
+### Embeddings run locally
+
+`sentence-transformers` (`all-MiniLM-L6-v2`) runs on-device. No API key needed to index or retrieve — anyone who clones this can run it offline.
+
+### Answers work with or without an LLM
+
+- With `OPENAI_API_KEY` set: a grounded LLM answer, instructed to use only the retrieved context.
+- Without it: an extractive fallback that returns the best-matching passages with their sources. The system is fully functional with zero API keys.
+
+## Eval results
+
+Retrieval quality is measured, not assumed. `evals/run_evals.py` runs a 12-question golden set (question -> the file that must be retrieved):
+
+```
+Hit@4:  12/12  (100%)
+MRR:    0.917
+```
+
+11 of 12 questions retrieved the correct source at **rank 1**.
+
+## Quickstart
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # then fill it in
+
+# point at the brain (defaults to ../tampify-second-brain)
+export BRAIN_REPO_PATH=../tampify-second-brain
+
+python src/cli.py index
+python src/cli.py ask "How much is the AI Sales Agent?"
+
+python evals/run_evals.py   # run the eval harness
 ```
+
+## Layout
+
+```
+src/
+  cli.py            # index | ask
+  librarian/
+    config.py       # paths, chunking, model, top-k
+    ingest.py       # load + chunk
+    store.py        # embed + persist to Chroma
+    retrieve.py     # hybrid retrieval (vector + keyword, RRF)
+    answer.py       # grounded generation + extractive fallback
+evals/
+  run_evals.py      # golden-set retrieval evals
+```
+
+## Stack
+
+Python · Chroma · sentence-transformers · (optional) OpenAI
 
 ## Status
 
-Scaffolded. Pipeline implementation in progress.
+Working end to end: index -> retrieve -> answer, with evals passing. Next: FastAPI endpoint, tracing, and hybrid-weight tuning.
