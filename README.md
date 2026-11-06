@@ -1,10 +1,10 @@
 # TampifyAI AI Librarian
 
-A RAG system that answers questions over TampifyAI's own knowledge base (the [Second Brain](https://github.com/cjjc3200-boop/tampify-second-brain)).
+A RAG system that answers questions over TampifyAI's own knowledge base (the [Second Brain](https://github.com/cjjc3200-boop/tampify-second-brain)), served as an HTTP API.
 
 This is not a demo over toy data — it indexes the real services, pricing, outreach sequence, targeting rules, and brand voice, and answers questions about them.
 
-## Why it exists
+## What it does
 
 The business keeps its knowledge in one place (the brain). This layer makes that knowledge answerable: instead of scrolling through markdown files, you ask a question and get a grounded answer with sources. It is also the retrieval layer that the Agency OS will draw on.
 
@@ -16,6 +16,8 @@ raw/ (Second Brain)  ->  ingest  ->  chunk  ->  embed  ->  Chroma
                               question  ->  embed  ->  hybrid retrieve (top-k)
                                                              |
                                               grounded answer + source files
+                                                             |
+                                                    FastAPI  (public HTTP)
 ```
 
 ### Retrieval is hybrid, and here is why
@@ -42,6 +44,16 @@ MRR:    0.917
 
 11 of 12 questions retrieved the correct source at **rank 1**.
 
+## API
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/health` | — | `{status, indexed_chunks}` |
+| POST | `/ask` | `{question, k?}` | `{answer, sources}` |
+| POST | `/reindex` | — | `{status, chunks}` |
+
+Interactive docs at `/docs` (FastAPI's Swagger UI).
+
 ## Quickstart
 
 ```bash
@@ -51,15 +63,32 @@ pip install -r requirements.txt
 # point at the brain (defaults to ../tampify-second-brain)
 export BRAIN_REPO_PATH=../tampify-second-brain
 
-python src/cli.py index
+python src/cli.py index                 # build the vector index
 python src/cli.py ask "How much is the AI Sales Agent?"
 
-python evals/run_evals.py   # run the eval harness
+uvicorn app:app --port 8000             # serve the API
+curl -X POST localhost:8000/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"What is the primary leak for a gym?"}'
+
+python evals/run_evals.py               # run the eval harness
+```
+
+## Run with Docker
+
+```bash
+docker build -t tampify-librarian .
+docker run -p 8000:8000 \
+  -e BRAIN_REPO_PATH=/app/brain \
+  -v $(pwd)/../tampify-second-brain:/app/brain \
+  tampify-librarian
 ```
 
 ## Layout
 
 ```
+app.py              # FastAPI service
+Dockerfile          # container image
 src/
   cli.py            # index | ask
   librarian/
@@ -74,8 +103,8 @@ evals/
 
 ## Stack
 
-Python · Chroma · sentence-transformers · (optional) OpenAI
+Python · FastAPI · Chroma · sentence-transformers · (optional) OpenAI
 
 ## Status
 
-Working end to end: index -> retrieve -> answer, with evals passing. Next: FastAPI endpoint, tracing, and hybrid-weight tuning.
+Working end to end: index -> retrieve -> answer, served over HTTP, evals passing. Next: tracing and hybrid-weight tuning.
