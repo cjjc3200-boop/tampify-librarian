@@ -5,8 +5,8 @@ Endpoints:
   POST /ask             {question, k?} -> grounded answer + sources
   POST /reindex         rebuild the vector index from the brain
 
-The app loads the index on startup and reuses it across requests, so the
-embedding model is loaded once, not per-call.
+The app loads the embedding model and index at startup so user requests only
+ever hit the warm (~20ms) path, not the ~7s cold load.
 """
 
 import sys
@@ -31,13 +31,23 @@ class AskRequest(BaseModel):
 class AskResponse(BaseModel):
     answer: str
     sources: list[str]
+    latency_ms: float
+    cost_usd: float
 
 
 @app.on_event("startup")
 def _warm_index():
+    """Load the embedding model and open the index at startup.
+
+    Tracing showed the first query otherwise pays a ~7s cold-start cost to
+    load the model. Warming here means user requests only ever hit the warm
+    (~20ms) path.
+    """
     try:
         store.collection()
+        store.embed(["warmup"])  # force the sentence-transformer to load
     except Exception:
+        # Not indexed yet -- /ask returns a clear error instead of crashing.
         pass
 
 
@@ -62,6 +72,8 @@ def ask(req: AskRequest):
     return AskResponse(
         answer=result["answer"],
         sources=list(dict.fromkeys(result["sources"])),
+        latency_ms=result["latency_ms"],
+        cost_usd=result["cost_usd"],
     )
 
 

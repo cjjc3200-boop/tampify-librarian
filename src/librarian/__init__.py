@@ -1,3 +1,3 @@
-"""TampifyAI Librarian — ask questions over the Second Brain."""
+"""TampifyAI Librarian -- ask questions over the Second Brain."""
 
-__all__ = ["config", "ingest", "store", "retrieve", "answer"]
+__all__ = ["config", "ingest", "store", "retrieve", "answer", "tracing", "cost"]
